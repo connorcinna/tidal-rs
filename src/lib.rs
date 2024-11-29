@@ -20,7 +20,7 @@ pub enum SearchType
 
 pub struct Search 
 {
-    search_type: SearchType,
+    type: SearchType,
     query: String,
     country_code: String,
     array: Option<Vec<String>>,
@@ -39,7 +39,7 @@ impl fmt::Display for SearchType
 pub async fn search_get(client: &reqwest::Client, search: Search) -> String
 {
     let bearer_token = basic_auth(&client).await;
-    let mut endpoint =  format!("https://openapi.tidal.com/v2/searchresults/{0}/relationships/{1}?countryCode={2}", search.query, search.search_type.to_string(), search.country_code);
+    let mut endpoint =  format!("https://openapi.tidal.com/v2/searchresults/{0}/relationships/{1}?countryCode={2}", search.query, search.type.to_string(), search.country_code);
     match search.array
     {
         Some(arr) =>
@@ -115,7 +115,7 @@ mod tests {
         let client : reqwest::Client = reqwest::Client::new();
         let search = Search 
         {
-            search_type: SearchType::Track,
+            type: SearchType::Track,
             query: String::from("radiohead"),
             country_code: String::from("US"),
             array: None,
