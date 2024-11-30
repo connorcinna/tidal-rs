@@ -1,5 +1,7 @@
 use reqwest;
 extern crate dotenv;
+extern crate serde_json;
+use serde_json::Value;
 use dotenv::dotenv;
 use std::env;
 use std::fmt;
@@ -31,7 +33,15 @@ impl fmt::Display for SearchType
 {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result 
     {
-        write!(fmt, "{:?}", self)
+        match &self
+        {
+            SearchType::Album => write!(fmt, "albums"),
+            SearchType::Artist => write!(fmt, "artists"),
+            SearchType::Playlist => write!(fmt, "playlists"),
+            SearchType::TopHits => write!(fmt, "topHits"),
+            SearchType::Track => write!(fmt, "tracks"),
+            SearchType::Video => write!(fmt, "videos"),
+        }
     }
 }
 
@@ -62,9 +72,12 @@ pub async fn search_get(client: &reqwest::Client, search: Search) -> String
         }
         None => {}
     }
-    match client.get(endpoint)
-        .bearer_auth(bearer_token)
-        .header("accept", "application/vnd.api+json")
+    endpoint = sanitize_url(endpoint);
+//    println!("{0}", endpoint);
+    match client
+        .get(endpoint)
+        .header(reqwest::header::ACCEPT, "application/vnd.api+json")
+        .header(reqwest::header::AUTHORIZATION, bearer_token)
         .send()
         .await
         {
@@ -87,7 +100,8 @@ async fn basic_auth(client: &reqwest::Client) -> String
     let endpoint = String::from("https://auth.tidal.com/v1/oauth2/token");
     let mut params = HashMap::new();
     params.insert("grant_type", "client_credentials");
-    match client.post(endpoint)
+    match client
+        .post(endpoint)
         .basic_auth(client_id, Some(client_secret))
         .form(&params)
         .send()
@@ -96,14 +110,20 @@ async fn basic_auth(client: &reqwest::Client) -> String
             Ok(resp) => 
             {
                 let out = resp.text().await.unwrap();
-                println!("{}", out);
-                out
+                let json: Value = serde_json::from_str(&out).unwrap();
+                let token = json.get("access_token").unwrap().to_string().replace("\"", "");
+                format!("Bearer {0}", token)
             }
             Err(e) => 
             {
                 e.to_string()
             }
         }
+}
+
+fn sanitize_url(url: String) -> String
+{
+    url.replace(' ', "%20")
 }
 
 #[cfg(test)]
@@ -123,5 +143,17 @@ mod tests {
         };
         let result = search_get(&client, search).await;
         println!("{result}");
+        assert!(!result.contains("ERROR"));
+        let space_search = Search
+        {
+            search_type: SearchType::Track,
+            query: String::from("this is a query with a string"),
+            country_code: String::from("US"),
+            array: None,
+            page: None,
+        };
+        let space_result = search_get(&client, space_search).await;
+        println!("{space_result}");
+        assert!(!space_result.contains("ERROR"));
     }
 }
