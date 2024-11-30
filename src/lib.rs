@@ -73,7 +73,6 @@ pub async fn search_get(client: &reqwest::Client, search: Search) -> String
         None => {}
     }
     endpoint = sanitize_url(endpoint);
-//    println!("{0}", endpoint);
     match client
         .get(endpoint)
         .header(reqwest::header::ACCEPT, "application/vnd.api+json")
@@ -90,6 +89,36 @@ pub async fn search_get(client: &reqwest::Client, search: Search) -> String
                 e.to_string()
             }
         }
+}
+
+//TODO finish seealso: https://github.com/yaronzz/Tidal-Media-Downloader/blob/master/TIDALDL-PY/tidal_dl/download.py
+async fn dl_bearer_auth(client: &reqwest::Client) -> String
+{
+    let endpoint = String::from("https://api.tidalhifi.com/v1/");
+    let bearer_token = dl_basic_auth(&client);
+    client
+        .get(endpoint)
+        .header(reqwest::header::AUTHORIZATION, bearer_token)
+        .send()
+        .await;
+
+
+    return String::from("_");
+}
+
+//TODO finish seealso: https://github.com/yaronzz/Tidal-Media-Downloader/blob/master/TIDALDL-PY/tidal_dl/download.py
+async fn dl_basic_auth(client: &reqwest::Client) -> String
+{
+    dotenv().ok();
+    let dl_client_id = env::var("DL_CLIENT_ID").expect("Did not find DL_CLIENT_ID in environment. Make sure to have a .env file defining your bearer token CLIENT_ID");
+    let dl_client_secret = env::var("DL_CLIENT_SECRET").expect("Did not find DL_CLIENT_SECRET in environment. Make sure to have a .env file defining your bearer token DL_CLIENT_SECRET");
+    let endpoint = String::from("https://auth.tidal.com/v1/oauth2/device_authorization");
+    client
+        .post(endpoint)
+        .send()
+        .await;
+
+    return String::from("_");
 }
 
 async fn basic_auth(client: &reqwest::Client) -> String
