@@ -2,6 +2,7 @@ use reqwest;
 extern crate dotenv;
 extern crate serde_json;
 use serde_json::Value;
+use serde_json::json;
 use dotenv::dotenv;
 use std::env;
 use std::fmt;
@@ -95,7 +96,7 @@ pub async fn search_get(client: &reqwest::Client, search: Search) -> String
 async fn dl_bearer_auth(client: &reqwest::Client) -> String
 {
     let endpoint = String::from("https://api.tidalhifi.com/v1/");
-    let bearer_token = dl_basic_auth(&client);
+    let bearer_token = dl_basic_auth(&client).await;
     client
         .get(endpoint)
         .header(reqwest::header::AUTHORIZATION, bearer_token)
@@ -113,12 +114,33 @@ async fn dl_basic_auth(client: &reqwest::Client) -> String
     let dl_client_id = env::var("DL_CLIENT_ID").expect("Did not find DL_CLIENT_ID in environment. Make sure to have a .env file defining your bearer token CLIENT_ID");
     let dl_client_secret = env::var("DL_CLIENT_SECRET").expect("Did not find DL_CLIENT_SECRET in environment. Make sure to have a .env file defining your bearer token DL_CLIENT_SECRET");
     let endpoint = String::from("https://auth.tidal.com/v1/oauth2/device_authorization");
-    client
-        .post(endpoint)
-        .send()
-        .await;
 
-    return String::from("_");
+    let mut body = HashMap::new();
+    body.insert("client_id", dl_client_id.as_str());
+    body.insert("scope",  "r_usr+w_usr+w_sub");
+    match client
+        .post(endpoint)
+        .header(reqwest::header::CONTENT_TYPE, "text/html")
+        .header(reqwest::header::ACCEPT, "application/json")
+        .form(&body)
+        .send()
+        .await
+        {
+            Ok(response) =>
+            {
+                let text = response.text().await.unwrap();
+                println!("OK : {0}", text);
+                let json: Value = serde_json::from_str(&text).unwrap();
+                let device_code = json.get("deviceCode").unwrap().to_string().replace("\"", "");
+                device_code
+            }
+            Err(e) => 
+            {
+                println!("ERROR : {:?}", e);
+                String::from("_")
+            }
+        }
+
 }
 
 async fn basic_auth(client: &reqwest::Client) -> String
@@ -171,7 +193,7 @@ mod tests {
             page: None,
         };
         let result = search_get(&client, search).await;
-        println!("{result}");
+//        println!("{result}");
         assert!(!result.contains("ERROR"));
         let space_search = Search
         {
@@ -182,7 +204,8 @@ mod tests {
             page: None,
         };
         let space_result = search_get(&client, space_search).await;
-        println!("{space_result}");
+//        println!("{space_result}");
         assert!(!space_result.contains("ERROR"));
+        dl_basic_auth(&client).await;
     }
 }
