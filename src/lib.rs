@@ -151,8 +151,8 @@ struct DlBasicAuthResponse
     client_name: String,
     token_type: String,
     access_token: String,
-    expires_in: String,
-    user_id: u32
+    expires_in: u32,
+    user_id: u32,
 }
 
 impl Default for DlBasicAuthResponse
@@ -166,11 +166,12 @@ impl Default for DlBasicAuthResponse
             client_name: String::new(),
             token_type: String::new(),
             access_token: String::new(),
-            expires_in: String::new(),
+            expires_in: 0,
             user_id: 0,
         }
     }
 }
+
 //handles all GET requests under the search results endpoint
 pub async fn search_get(client: &reqwest::Client, search: Search) -> String
 {
@@ -227,10 +228,26 @@ async fn dl_login_web(client: &reqwest::Client) -> DlBasicAuthResponse
 }
 
 //check if we are authenticated already, or if it expired
-async fn dl_check_auth(client: &reqwest::Client) -> bool
+async fn dl_check_auth(client: &reqwest::Client, auth: DlBasicAuthResponse) -> bool
 {
     //TODO
-    todo!()
+    let url = "https://api.tidal.com/v1/sessions";
+    match client
+        .get(url)
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {0}", auth.access_token))
+        .send()
+        .await
+        {
+            Ok(response) => 
+            {
+                response.status() != reqwest::StatusCode::OK
+            }
+            Err(e) => 
+            {
+                eprintln!("{e}");
+                false
+            }
+        }
 }
 
 //general GET function for the unofficial API
@@ -239,7 +256,7 @@ async fn dl_get(client: &reqwest::Client, endpoint: String) -> String
 {
     let url = format!("https://api.tidalhifi.com/v1/{0}", endpoint);
     let mut auth: DlBasicAuthResponse = DlBasicAuthResponse::default();
-    if !dl_check_auth(&client).await
+    if !dl_check_auth(&client, auth).await
     {
         auth = dl_login_web(&client).await;
     }
