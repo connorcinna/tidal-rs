@@ -8,8 +8,9 @@ use std::env;
 use std::fmt;
 use std::collections::HashMap;
 
-//for efficiency reasons, this API will expect a reqwest client passed in so that it can be reused
 
+//TODO: move all these structs to their own file
+//for efficiency reasons, this API will expect a reqwest client passed in so that it can be reused
 #[derive(Debug)]
 pub enum SearchType 
 {
@@ -29,6 +30,22 @@ pub struct Search
     country_code: String,
     array: Option<Vec<String>>,
     page: Option<String>,
+}
+
+impl fmt::Display for SearchType
+{
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result 
+    {
+        match &self
+        {
+            SearchType::Album => write!(fmt, "albums"),
+            SearchType::Artist => write!(fmt, "artists"),
+            SearchType::Playlist => write!(fmt, "playlists"),
+            SearchType::TopHits => write!(fmt, "topHits"),
+            SearchType::Track => write!(fmt, "tracks"),
+            SearchType::Video => write!(fmt, "videos"),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -59,22 +76,101 @@ impl Default for DeviceCodeResponse
     }
 }
 
-impl fmt::Display for SearchType
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all(serialize = "snake_case", deserialize = "camelCase"))]
+struct User
 {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result 
+    user_id: String,
+    email: String,
+    country_code: String,
+    full_name: String,
+    first_name: String,
+    last_name: String,
+    nickname: String,
+    username: String,
+    address: String,
+    city: String,
+    postalcode: String,
+    us_state: String,
+    phone_number: String,
+    birthday: String,
+    channel_id: u32,
+    parent_id: u32,
+    accepted_eula: bool,
+    created: u32,
+    updated: u32,
+    facebook_uid: u32,
+    apple_uid: u32,
+    google_uid: u32,
+    account_link_created: bool,
+    email_verified: bool,
+    new_user: bool
+}
+
+impl Default for User
+{
+    fn default() -> Self
     {
-        match &self
+        User
         {
-            SearchType::Album => write!(fmt, "albums"),
-            SearchType::Artist => write!(fmt, "artists"),
-            SearchType::Playlist => write!(fmt, "playlists"),
-            SearchType::TopHits => write!(fmt, "topHits"),
-            SearchType::Track => write!(fmt, "tracks"),
-            SearchType::Video => write!(fmt, "videos"),
+            user_id: String::new(),
+            email: String::new(),
+            country_code: String::new(),
+            full_name: String::new(),
+            first_name: String::new(),
+            last_name: String::new(),
+            nickname: String::new(),
+            username: String::new(),
+            address: String::new(),
+            city: String::new(),
+            postalcode: String::new(),
+            us_state: String::new(),
+            phone_number: String::new(),
+            birthday: String::new(),
+            channel_id: 0,
+            parent_id: 0,
+            accepted_eula: false,
+            created: 0,
+            updated: 0,
+            facebook_uid: 0,
+            apple_uid: 0,
+            google_uid: 0,
+            account_link_created: false,
+            email_verified: false,
+            new_user: false
         }
     }
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all(serialize = "snake_case", deserialize = "camelCase"))]
+struct DlBasicAuthResponse
+{
+    scope: String,
+    user: User,
+    client_name: String,
+    token_type: String,
+    access_token: String,
+    expires_in: String,
+    user_id: u32
+}
+
+impl Default for DlBasicAuthResponse
+{
+    fn default() -> Self
+    {
+        DlBasicAuthResponse
+        {
+            scope: String::new(),
+            user: User::default(),
+            client_name: String::new(),
+            token_type: String::new(),
+            access_token: String::new(),
+            expires_in: String::new(),
+            user_id: 0,
+        }
+    }
+}
 //handles all GET requests under the search results endpoint
 pub async fn search_get(client: &reqwest::Client, search: Search) -> String
 {
@@ -121,21 +217,53 @@ pub async fn search_get(client: &reqwest::Client, search: Search) -> String
         }
 }
 
-//TODO finish seealso: https://github.com/yaronzz/Tidal-Media-Downloader/blob/master/TIDALDL-PY/tidal_dl/download.py
-//async fn dl_bearer_auth(client: &reqwest::Client) -> String
-//{
-//    let endpoint = String::from("https://api.tidalhifi.com/v1/");
-//    let device_code_response = device_auth(&client).await;
-//    client
-//        .get(endpoint)
-//        .header(reqwest::header::AUTHORIZATION, bearer_token)
-//        .send()
-//        .await;
-//
-//    return String::from("_");
-//}
+//oauth2 login 
+async fn dl_login_web(client: &reqwest::Client) -> DlBasicAuthResponse
+{
+    let response = device_auth(&client).await;
+    println!("Go to the following link in your browser to authenticate, then press any button to continue -- {0}", response.verification_uri_complete);
+    let _ = std::io::stdin().read_line(&mut String::new());
+    dl_basic_auth(&client, response).await
+}
 
-//TODO finish seealso: https://github.com/yaronzz/Tidal-Media-Downloader/blob/master/TIDALDL-PY/tidal_dl/download.py
+//check if we are authenticated already, or if it expired
+async fn dl_check_auth(client: &reqwest::Client) -> bool
+{
+    //TODO
+    todo!()
+}
+
+//general GET function for the unofficial API
+//TODO: make this part of a class so we can keep track of the auth status?
+async fn dl_get(client: &reqwest::Client, endpoint: String) -> String
+{
+    let url = format!("https://api.tidalhifi.com/v1/{0}", endpoint);
+    let mut auth: DlBasicAuthResponse = DlBasicAuthResponse::default();
+    if !dl_check_auth(&client).await
+    {
+        auth = dl_login_web(&client).await;
+    }
+    match client
+        .get(url)
+        .header(reqwest::header::AUTHORIZATION, auth.access_token)
+        .send()
+        .await
+    {
+        Ok(response) => 
+        {
+            response
+                .text()
+                .await
+                .unwrap()
+        }
+        Err(e) =>
+        {
+            eprintln!("{e}");
+            String::new()
+        }
+    }
+}
+
 async fn device_auth(client: &reqwest::Client) -> DeviceCodeResponse
 {
     dotenv().ok();
@@ -169,7 +297,7 @@ async fn device_auth(client: &reqwest::Client) -> DeviceCodeResponse
 
 }
 
-async fn dl_basic_auth(client: &reqwest::Client, device_code_response: DeviceCodeResponse)
+async fn dl_basic_auth(client: &reqwest::Client, device_code_response: DeviceCodeResponse) -> DlBasicAuthResponse
 {
     dotenv().ok();
     let dl_client_id = env::var("DL_CLIENT_ID").expect("Did not find DL_CLIENT_ID in environment. Make sure to have a .env file defining CLIENT_ID");
@@ -188,18 +316,20 @@ async fn dl_basic_auth(client: &reqwest::Client, device_code_response: DeviceCod
         .send()
         .await
         {
-            Ok(resp) =>
+            Ok(response) =>
             {
-                let out = resp.text().await.unwrap();
-//                let json: Value = serde_json::from_str(&out).unwrap();
-                println!("{0}", out);
+                let resp_text: &str = &response
+                    .text()
+                    .await
+                    .unwrap();
+                serde_json::from_str(&resp_text).expect("Unable to deserialize response from device_authorization endpoint") 
             }
             Err(e) =>
             {
                 eprintln!("{0}", e);
+                DlBasicAuthResponse::default()
             }
         }
-
 }
 
 async fn basic_auth(client: &reqwest::Client) -> String
@@ -267,6 +397,5 @@ mod tests {
         assert!(!space_result.contains("ERROR"));
         let response = device_auth(&client).await;
         println!("{:?}", response);
-        dl_basic_auth(&client, response).await;
     }
 }
