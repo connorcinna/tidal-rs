@@ -80,28 +80,28 @@ impl Default for DeviceCodeResponse
 #[serde(rename_all(serialize = "snake_case", deserialize = "camelCase"))]
 struct User
 {
-    user_id: String,
-    email: String,
-    country_code: String,
-    full_name: String,
-    first_name: String,
-    last_name: String,
-    nickname: String,
-    username: String,
-    address: String,
-    city: String,
-    postalcode: String,
-    us_state: String,
-    phone_number: String,
-    birthday: String,
-    channel_id: u32,
-    parent_id: u32,
-    accepted_eula: bool,
-    created: u32,
-    updated: u32,
-    facebook_uid: u32,
-    apple_uid: u32,
-    google_uid: u32,
+    user_id: Option<u64>,
+    email: Option<String>,
+    country_code: Option<String>,
+    full_name: Option<String>,
+    first_name: Option<String>,
+    last_name: Option<String>,
+    nickname: Option<String>,
+    username: Option<String>,
+    address: Option<String>,
+    city: Option<String>,
+    postalcode: Option<String>,
+    us_state: Option<String>,
+    phone_number: Option<String>,
+    birthday: Option<String>,
+    channel_id: Option<u64>,
+    parent_id: Option<u64>,
+    accepted_EULA: bool,
+    created: Option<u64>,
+    updated: Option<u64>,
+    facebook_uid: Option<u64>,
+    apple_uid: Option<u64>,
+    google_uid: Option<u64>,
     account_link_created: bool,
     email_verified: bool,
     new_user: bool
@@ -113,28 +113,28 @@ impl Default for User
     {
         User
         {
-            user_id: String::new(),
-            email: String::new(),
-            country_code: String::new(),
-            full_name: String::new(),
-            first_name: String::new(),
-            last_name: String::new(),
-            nickname: String::new(),
-            username: String::new(),
-            address: String::new(),
-            city: String::new(),
-            postalcode: String::new(),
-            us_state: String::new(),
-            phone_number: String::new(),
-            birthday: String::new(),
-            channel_id: 0,
-            parent_id: 0,
-            accepted_eula: false,
-            created: 0,
-            updated: 0,
-            facebook_uid: 0,
-            apple_uid: 0,
-            google_uid: 0,
+            user_id: Some(0),
+            email: Some(String::new()),
+            country_code: Some(String::new()),
+            full_name: Some(String::new()),
+            first_name: Some(String::new()),
+            last_name: Some(String::new()),
+            nickname: Some(String::new()),
+            username: Some(String::new()),
+            address: Some(String::new()),
+            city: Some(String::new()),
+            postalcode: Some(String::new()),
+            us_state: Some(String::new()),
+            phone_number: Some(String::new()),
+            birthday: Some(String::new()),
+            channel_id: Some(0),
+            parent_id: Some(0),
+            accepted_EULA: false,
+            created: Some(0),
+            updated: Some(0),
+            facebook_uid: Some(0),
+            apple_uid: Some(0),
+            google_uid: Some(0),
             account_link_created: false,
             email_verified: false,
             new_user: false
@@ -143,16 +143,15 @@ impl Default for User
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all(serialize = "snake_case", deserialize = "camelCase"))]
 struct DlBasicAuthResponse
 {
     scope: String,
     user: User,
-    client_name: String,
+    clientName: String,
     token_type: String,
     access_token: String,
     expires_in: u32,
-    user_id: u32,
+    user_id: u64,
 }
 
 impl Default for DlBasicAuthResponse
@@ -163,7 +162,7 @@ impl Default for DlBasicAuthResponse
         {
             scope: String::new(),
             user: User::default(),
-            client_name: String::new(),
+            clientName: String::new(),
             token_type: String::new(),
             access_token: String::new(),
             expires_in: 0,
@@ -228,9 +227,8 @@ async fn dl_login_web(client: &reqwest::Client) -> DlBasicAuthResponse
 }
 
 //check if we are authenticated already, or if it expired
-async fn dl_check_auth(client: &reqwest::Client, auth: DlBasicAuthResponse) -> bool
+async fn dl_check_auth(client: &reqwest::Client, auth: &DlBasicAuthResponse) -> bool
 {
-    //TODO
     let url = "https://api.tidal.com/v1/sessions";
     match client
         .get(url)
@@ -240,7 +238,12 @@ async fn dl_check_auth(client: &reqwest::Client, auth: DlBasicAuthResponse) -> b
         {
             Ok(response) => 
             {
-                response.status() != reqwest::StatusCode::OK
+                let ret = response.status() == reqwest::StatusCode::OK;
+                println!("{0}", &response
+                    .text()
+                    .await
+                    .unwrap());
+                return ret;
             }
             Err(e) => 
             {
@@ -251,34 +254,35 @@ async fn dl_check_auth(client: &reqwest::Client, auth: DlBasicAuthResponse) -> b
 }
 
 //general GET function for the unofficial API
-//TODO: make this part of a class so we can keep track of the auth status?
-async fn dl_get(client: &reqwest::Client, endpoint: String) -> String
+async fn dl_get(client: &reqwest::Client, endpoint: String, auth: &mut DlBasicAuthResponse) -> String
 {
     let url = format!("https://api.tidalhifi.com/v1/{0}", endpoint);
-    let mut auth: DlBasicAuthResponse = DlBasicAuthResponse::default();
-    if !dl_check_auth(&client, auth).await
+    if !dl_check_auth(&client, &auth).await
     {
-        auth = dl_login_web(&client).await;
+        *auth = dl_login_web(&client).await;
     }
+    let mut body = HashMap::new();
+    body.insert(String::from("countryCode"), &auth.user.country_code);
     match client
         .get(url)
-        .header(reqwest::header::AUTHORIZATION, auth.access_token)
+        .header(reqwest::header::AUTHORIZATION, &auth.access_token)
+        .form(&body)
         .send()
         .await
-    {
-        Ok(response) => 
         {
-            response
-                .text()
-                .await
-                .unwrap()
+            Ok(response) => 
+            {
+                response
+                    .text()
+                    .await
+                    .unwrap()
+            }
+            Err(e) =>
+            {
+                eprintln!("{e}");
+                String::new()
+            }
         }
-        Err(e) =>
-        {
-            eprintln!("{e}");
-            String::new()
-        }
-    }
 }
 
 async fn device_auth(client: &reqwest::Client) -> DeviceCodeResponse
@@ -339,6 +343,7 @@ async fn dl_basic_auth(client: &reqwest::Client, device_code_response: DeviceCod
                     .text()
                     .await
                     .unwrap();
+                println!("{0}", resp_text);
                 serde_json::from_str(&resp_text).expect("Unable to deserialize response from device_authorization endpoint") 
             }
             Err(e) =>
@@ -414,5 +419,8 @@ mod tests {
         assert!(!space_result.contains("ERROR"));
         let response = device_auth(&client).await;
         println!("{:?}", response);
+        let mut auth = dl_login_web(&client).await;
+        let get = dl_get(&client, String::from("tracks/58990486"), &mut auth).await;
+        println!("{0}", get);
     }
 }
