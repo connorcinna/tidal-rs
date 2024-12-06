@@ -171,6 +171,29 @@ impl Default for DlBasicAuthResponse
     }
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Media
+{
+    id: String,
+    #[serde(rename = "type")] 
+    _type: String
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Links
+{
+    #[serde(rename = "self")] 
+    _self: String,
+    next: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SearchResponse
+{
+    data: Vec<Media>,
+    links: Links
+}
+
 //handles all GET requests under the search results endpoint
 pub async fn search_get(client: &reqwest::Client, search: Search) -> String
 {
@@ -215,6 +238,26 @@ pub async fn search_get(client: &reqwest::Client, search: Search) -> String
                 e.to_string()
             }
         }
+}
+
+pub async fn search_get_track(client: &reqwest::Client, query: String) -> Vec<String>
+{
+    let search = Search 
+    {
+        search_type: SearchType::Track,
+        query,
+        country_code: String::from("US"),
+        array: None,
+        page: None,
+    };
+    println!("Query: {0}", search.query);
+    let get = search_get(&client, search).await;
+    let arr: SearchResponse = serde_json::from_str(get.as_str()).unwrap();
+    return arr
+        .data
+        .iter()
+        .map(|m| m.id.clone())
+        .collect()
 }
 
 //oauth2 login 
@@ -283,6 +326,12 @@ async fn dl_get(client: &reqwest::Client, endpoint: String, auth: &mut DlBasicAu
                 String::new()
             }
         }
+}
+
+async fn dl_get_track(client: &reqwest::Client, query: String) -> String
+{
+    todo!()
+
 }
 
 async fn device_auth(client: &reqwest::Client) -> DeviceCodeResponse
@@ -403,24 +452,20 @@ mod tests {
             array: None,
             page: None,
         };
+        println!("SEARCH GET: {0}", search.query);
         let result = search_get(&client, search).await;
-//        println!("{result}");
+        println!("{result}");
         assert!(!result.contains("ERROR"));
-        let space_search = Search
-        {
-            search_type: SearchType::Track,
-            query: String::from("this is a query with a string"),
-            country_code: String::from("US"),
-            array: None,
-            page: None,
-        };
-        let space_result = search_get(&client, space_search).await;
-//        println!("{space_result}");
-        assert!(!space_result.contains("ERROR"));
         let response = device_auth(&client).await;
         println!("{:?}", response);
-        let mut auth = dl_login_web(&client).await;
-        let get = dl_get(&client, String::from("tracks/58990486"), &mut auth).await;
-        println!("{0}", get);
+//        let mut auth = dl_login_web(&client).await;
+//        let get = dl_get(&client, String::from("tracks/58990486"), &mut auth).await;
+//        println!("{0}", get);
+
+        let track_search = search_get_track(&client, String::from("pablo honey")).await;
+        for s in track_search
+        {
+            println!("{0}", s);
+        }
     }
 }
