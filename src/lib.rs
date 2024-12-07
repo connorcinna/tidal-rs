@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use reqwest;
 extern crate dotenv;
 extern crate serde_json;
@@ -6,10 +7,12 @@ use serde::{Serialize, Deserialize};
 use dotenv::dotenv;
 use std::env;
 use std::fmt;
+use std::fmt::Display;
 use std::collections::HashMap;
 
 
 //TODO: move all these structs to their own file
+//TODO: move all auth stuff into its own file
 //for efficiency reasons, this API will expect a reqwest client passed in so that it can be reused
 #[derive(Debug)]
 pub enum SearchType 
@@ -78,6 +81,7 @@ impl Default for DeviceCodeResponse
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all(serialize = "snake_case", deserialize = "camelCase"))]
+#[allow(non_snake_case)]
 struct User
 {
     user_id: Option<u64>,
@@ -143,6 +147,7 @@ impl Default for User
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[allow(non_snake_case)]
 struct DlBasicAuthResponse
 {
     scope: String,
@@ -297,15 +302,16 @@ async fn dl_check_auth(client: &reqwest::Client, auth: &DlBasicAuthResponse) -> 
 }
 
 //general GET function for the unofficial API
-async fn dl_get(client: &reqwest::Client, endpoint: String, auth: &mut DlBasicAuthResponse) -> String
+async fn dl_get<K, V>(client: &reqwest::Client, endpoint: String, body: HashMap<K, V>, auth: &mut DlBasicAuthResponse) -> String
+where 
+    K: Display + serde::Serialize,
+    V: Display + serde::Serialize,
 {
     let url = format!("https://api.tidalhifi.com/v1/{0}", endpoint);
     if !dl_check_auth(&client, &auth).await
     {
         *auth = dl_login_web(&client).await;
     }
-    let mut body = HashMap::new();
-    body.insert(String::from("countryCode"), &auth.user.country_code);
     match client
         .get(url)
         .header(reqwest::header::AUTHORIZATION, &auth.access_token)
@@ -328,10 +334,17 @@ async fn dl_get(client: &reqwest::Client, endpoint: String, auth: &mut DlBasicAu
         }
 }
 
-async fn dl_get_track(client: &reqwest::Client, query: String) -> String
+async fn dl_get_track(client: &reqwest::Client, query: String, auth: &mut DlBasicAuthResponse) -> String
 {
-    todo!()
-
+    let endpoint = format!("tracks/{0}/playbackinfopostpaywall", query);
+    let mut body = HashMap::new();
+    body.insert("audioquality", "LOSSLESS");
+    body.insert("playbackmode", "STREAM");
+    body.insert("assetpresentation", "FULL");
+    let country_code = auth.user.country_code.to_owned().unwrap();
+    body.insert("countryCode", country_code.as_str());
+    let res = dl_get(&client, endpoint, body, auth).await;
+    res
 }
 
 async fn device_auth(client: &reqwest::Client) -> DeviceCodeResponse
@@ -458,14 +471,13 @@ mod tests {
         assert!(!result.contains("ERROR"));
         let response = device_auth(&client).await;
         println!("{:?}", response);
-//        let mut auth = dl_login_web(&client).await;
-//        let get = dl_get(&client, String::from("tracks/58990486"), &mut auth).await;
-//        println!("{0}", get);
-
+        let mut auth = dl_login_web(&client).await;
         let track_search = search_get_track(&client, String::from("pablo honey")).await;
-        for s in track_search
+        for s in &track_search
         {
             println!("{0}", s);
         }
+        let pablo_honey = dl_get_track(&client, track_search[0].clone(), &mut auth).await;
+        println!("pablo_honey: {0}", pablo_honey);
     }
 }
