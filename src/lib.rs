@@ -312,9 +312,10 @@ where
     {
         *auth = dl_login_web(&client).await;
     }
+    let country_code_copy = auth.user.country_code.clone();
     match client
         .get(url)
-        .header(reqwest::header::AUTHORIZATION, &auth.access_token)
+        .header(reqwest::header::AUTHORIZATION, country_code_copy.unwrap())
         .form(&body)
         .send()
         .await
@@ -341,8 +342,6 @@ async fn dl_get_track(client: &reqwest::Client, query: String, auth: &mut DlBasi
     body.insert("audioquality", "LOSSLESS");
     body.insert("playbackmode", "STREAM");
     body.insert("assetpresentation", "FULL");
-    let country_code = auth.user.country_code.to_owned().unwrap();
-    body.insert("countryCode", country_code.as_str());
     let res = dl_get(&client, endpoint, body, auth).await;
     res
 }
