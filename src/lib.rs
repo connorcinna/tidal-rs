@@ -10,6 +10,9 @@ use std::fmt;
 use std::fmt::Display;
 use std::collections::HashMap;
 
+macro_rules! s {
+    ($s:expr) => { $s.to_string() }
+}
 
 //TODO: move all these structs to their own file
 //TODO: move all auth stuff into its own file
@@ -251,11 +254,10 @@ pub async fn search_get_track(client: &reqwest::Client, query: String) -> Vec<St
     {
         search_type: SearchType::Track,
         query,
-        country_code: String::from("US"),
+        country_code: s!("US"),
         array: None,
         page: None,
     };
-    println!("Query: {0}", search.query);
     let get = search_get(&client, search).await;
     let arr: SearchResponse = serde_json::from_str(get.as_str()).unwrap();
     return arr
@@ -287,10 +289,6 @@ async fn dl_check_auth(client: &reqwest::Client, auth: &DlBasicAuthResponse) -> 
             Ok(response) => 
             {
                 let ret = response.status() == reqwest::StatusCode::OK;
-                println!("{0}", &response
-                    .text()
-                    .await
-                    .unwrap());
                 return ret;
             }
             Err(e) => 
@@ -302,21 +300,20 @@ async fn dl_check_auth(client: &reqwest::Client, auth: &DlBasicAuthResponse) -> 
 }
 
 //general GET function for the unofficial API
-async fn dl_get<K, V>(client: &reqwest::Client, endpoint: String, body: HashMap<K, V>, auth: &mut DlBasicAuthResponse) -> String
-where 
-    K: Display + serde::Serialize,
-    V: Display + serde::Serialize,
+async fn dl_get(client: &reqwest::Client, endpoint: String, params: &mut HashMap<String, String>, auth: &mut DlBasicAuthResponse) -> String
 {
-    let url = format!("https://api.tidalhifi.com/v1/{0}", endpoint);
+    if let Some(country_code) = &auth.user.country_code 
+    {
+        params.insert(s!("countryCode"), country_code.to_owned());
+    }
+    let url = reqwest::Url::parse_with_params(format!("https://api.tidalhifi.com/v1/{0}", endpoint).as_str(), params);
     if !dl_check_auth(&client, &auth).await
     {
         *auth = dl_login_web(&client).await;
     }
-    let country_code_copy = auth.user.country_code.clone();
     match client
-        .get(url)
-        .header(reqwest::header::AUTHORIZATION, country_code_copy.unwrap())
-        .form(&body)
+        .get(url.unwrap())
+        .header(reqwest::header::AUTHORIZATION, auth.access_token.clone())
         .send()
         .await
         {
@@ -338,11 +335,11 @@ where
 async fn dl_get_track(client: &reqwest::Client, query: String, auth: &mut DlBasicAuthResponse) -> String
 {
     let endpoint = format!("tracks/{0}/playbackinfopostpaywall", query);
-    let mut body = HashMap::new();
-    body.insert("audioquality", "LOSSLESS");
-    body.insert("playbackmode", "STREAM");
-    body.insert("assetpresentation", "FULL");
-    let res = dl_get(&client, endpoint, body, auth).await;
+    let mut params = HashMap::new();
+    params.insert(s!("audioquality"), s!("LOSSLESS"));
+    params.insert(s!("playbackmode"), s!("STREAM"));
+    params.insert(s!("assetpresentation"), s!("FULL"));
+    let res = dl_get(&client, endpoint, &mut params, auth).await;
     res
 }
 
@@ -350,15 +347,15 @@ async fn device_auth(client: &reqwest::Client) -> DeviceCodeResponse
 {
     dotenv().ok();
     let dl_client_id = env::var("DL_CLIENT_ID").expect("Did not find DL_CLIENT_ID in environment. Make sure to have a .env file defining CLIENT_ID");
-    let endpoint = String::from("https://auth.tidal.com/v1/oauth2/device_authorization");
+    let endpoint = s!("https://auth.tidal.com/v1/oauth2/device_authorization");
 
-    let mut body = HashMap::new();
-    body.insert("client_id", dl_client_id.as_str());
-    body.insert("scope",  "r_usr+w_usr+w_sub");
+    let mut params = HashMap::new();
+    params.insert("client_id", dl_client_id.as_str());
+    params.insert("scope",  "r_usr+w_usr+w_sub");
     match client
         .post(endpoint)
         .header(reqwest::header::ACCEPT, "application/json")
-        .form(&body)
+        .form(&params)
         .send()
         .await
         {
@@ -384,17 +381,17 @@ async fn dl_basic_auth(client: &reqwest::Client, device_code_response: DeviceCod
     dotenv().ok();
     let dl_client_id = env::var("DL_CLIENT_ID").expect("Did not find DL_CLIENT_ID in environment. Make sure to have a .env file defining CLIENT_ID");
     let dl_client_secret = env::var("DL_CLIENT_SECRET").expect("Did not find DL_CLIENT_SECRET in environment. Make sure to have a .env file defining DL_CLIENT_SECRET");
-    let endpoint = String::from("https://auth.tidal.com/v1/oauth2/token");
-    let mut body = HashMap::new();
-    body.insert("client_id", dl_client_id.as_str());
-    body.insert("device_code", device_code_response.device_code.as_str());
-    body.insert("grant_type", "urn:ietf:params:oauth:grant-type:device_code");
-    body.insert("scope",  "r_usr+w_usr+w_sub");
+    let endpoint = s!("https://auth.tidal.com/v1/oauth2/token");
+    let mut params = HashMap::new();
+    params.insert("client_id", dl_client_id.as_str());
+    params.insert("device_code", device_code_response.device_code.as_str());
+    params.insert("grant_type", "urn:ietf:params:oauth:grant-type:device_code");
+    params.insert("scope",  "r_usr+w_usr+w_sub");
 
     match client
         .post(endpoint)
         .basic_auth(&dl_client_id, Some(dl_client_secret))
-        .form(&body)
+        .form(&params)
         .send()
         .await
         {
@@ -404,7 +401,7 @@ async fn dl_basic_auth(client: &reqwest::Client, device_code_response: DeviceCod
                     .text()
                     .await
                     .unwrap();
-                println!("{0}", resp_text);
+//                println!("{0}", resp_text);
                 serde_json::from_str(&resp_text).expect("Unable to deserialize response from device_authorization endpoint") 
             }
             Err(e) =>
@@ -420,7 +417,7 @@ async fn basic_auth(client: &reqwest::Client) -> String
     dotenv().ok();
     let client_id = env::var("CLIENT_ID").expect("Did not find CLIENT_ID in environment. Make sure to have a .env file defining CLIENT_ID");
     let client_secret = env::var("CLIENT_SECRET").expect("Did not find CLIENT_SECRET in environment. Make sure to have a .env file defining CLIENT_SECRET");
-    let endpoint = String::from("https://auth.tidal.com/v1/oauth2/token");
+    let endpoint = s!("https://auth.tidal.com/v1/oauth2/token");
     let mut params = HashMap::new();
     params.insert("grant_type", "client_credentials");
     match client
@@ -456,27 +453,9 @@ mod tests {
     #[tokio::test]
     async fn it_works() {
         let client : reqwest::Client = reqwest::Client::new();
-        let search = Search 
-        {
-            search_type: SearchType::Track,
-            query: String::from("radiohead"),
-            country_code: String::from("US"),
-            array: None,
-            page: None,
-        };
-        println!("SEARCH GET: {0}", search.query);
-        let result = search_get(&client, search).await;
-        println!("{result}");
-        assert!(!result.contains("ERROR"));
-        let response = device_auth(&client).await;
-        println!("{:?}", response);
-        let mut auth = dl_login_web(&client).await;
-        let track_search = search_get_track(&client, String::from("pablo honey")).await;
-        for s in &track_search
-        {
-            println!("{0}", s);
-        }
-        let pablo_honey = dl_get_track(&client, track_search[0].clone(), &mut auth).await;
+        let mut auth = DlBasicAuthResponse::default();
+        let track_search = search_get_track(&client, s!("pablo honey")).await;
+        let pablo_honey = dl_get_track(&client, track_search[1].clone(), &mut auth).await;
         println!("pablo_honey: {0}", pablo_honey);
     }
 }
