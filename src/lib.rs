@@ -385,7 +385,7 @@ async fn dl_basic_auth(client: &reqwest::Client, device_code_response: DeviceCod
     let mut form = HashMap::new();
     form.insert("client_id", dl_client_id.as_str());
     form.insert("device_code", device_code_response.device_code.as_str());
-    form.insert("grant_type", "urn:ietf:body:oauth:grant-type:device_code");
+    form.insert("grant_type", "urn:ietf:params:oauth:grant-type:device_code");
     form.insert("scope",  "r_usr+w_usr+w_sub");
 
     match client
