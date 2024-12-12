@@ -349,13 +349,13 @@ async fn device_auth(client: &reqwest::Client) -> DeviceCodeResponse
     let dl_client_id = env::var("DL_CLIENT_ID").expect("Did not find DL_CLIENT_ID in environment. Make sure to have a .env file defining CLIENT_ID");
     let endpoint = s!("https://auth.tidal.com/v1/oauth2/device_authorization");
 
-    let mut params = HashMap::new();
-    params.insert("client_id", dl_client_id.as_str());
-    params.insert("scope",  "r_usr+w_usr+w_sub");
+    let mut form = HashMap::new();
+    form.insert("client_id", dl_client_id.as_str());
+    form.insert("scope",  "r_usr+w_usr+w_sub");
     match client
         .post(endpoint)
         .header(reqwest::header::ACCEPT, "application/json")
-        .form(&params)
+        .form(&form)
         .send()
         .await
         {
@@ -382,16 +382,16 @@ async fn dl_basic_auth(client: &reqwest::Client, device_code_response: DeviceCod
     let dl_client_id = env::var("DL_CLIENT_ID").expect("Did not find DL_CLIENT_ID in environment. Make sure to have a .env file defining CLIENT_ID");
     let dl_client_secret = env::var("DL_CLIENT_SECRET").expect("Did not find DL_CLIENT_SECRET in environment. Make sure to have a .env file defining DL_CLIENT_SECRET");
     let endpoint = s!("https://auth.tidal.com/v1/oauth2/token");
-    let mut params = HashMap::new();
-    params.insert("client_id", dl_client_id.as_str());
-    params.insert("device_code", device_code_response.device_code.as_str());
-    params.insert("grant_type", "urn:ietf:params:oauth:grant-type:device_code");
-    params.insert("scope",  "r_usr+w_usr+w_sub");
+    let mut form = HashMap::new();
+    form.insert("client_id", dl_client_id.as_str());
+    form.insert("device_code", device_code_response.device_code.as_str());
+    form.insert("grant_type", "urn:ietf:body:oauth:grant-type:device_code");
+    form.insert("scope",  "r_usr+w_usr+w_sub");
 
     match client
         .post(endpoint)
         .basic_auth(&dl_client_id, Some(dl_client_secret))
-        .form(&params)
+        .form(&form)
         .send()
         .await
         {
@@ -418,12 +418,12 @@ async fn basic_auth(client: &reqwest::Client) -> String
     let client_id = env::var("CLIENT_ID").expect("Did not find CLIENT_ID in environment. Make sure to have a .env file defining CLIENT_ID");
     let client_secret = env::var("CLIENT_SECRET").expect("Did not find CLIENT_SECRET in environment. Make sure to have a .env file defining CLIENT_SECRET");
     let endpoint = s!("https://auth.tidal.com/v1/oauth2/token");
-    let mut params = HashMap::new();
-    params.insert("grant_type", "client_credentials");
+    let mut form = HashMap::new();
+    form.insert("grant_type", "client_credentials");
     match client
         .post(endpoint)
         .basic_auth(client_id, Some(client_secret))
-        .form(&params)
+        .form(&form)
         .send()
         .await
         {
