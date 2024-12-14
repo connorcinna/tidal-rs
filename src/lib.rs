@@ -274,7 +274,6 @@ async fn dl_login_web(client: &reqwest::Client) -> DlBasicAuthResponse
     println!("Go to the following link in your browser to authenticate, then press any button to continue -- {0}", response.verification_uri_complete);
     let _ = std::io::stdin().read_line(&mut String::new());
     let auth_response = dl_basic_auth(&client, response).await;
-    println!("dl_login_web: {:?}", auth_response);
     auth_response
 }
 
@@ -291,7 +290,6 @@ async fn dl_check_auth(client: &reqwest::Client, auth: &DlBasicAuthResponse) -> 
             Ok(response) => 
             {
                 let ret = response.status() == reqwest::StatusCode::OK;
-                println!("dl_check_auth: {0}", response.text().await.unwrap());
                 return ret;
             }
             Err(e) => 
@@ -303,6 +301,7 @@ async fn dl_check_auth(client: &reqwest::Client, auth: &DlBasicAuthResponse) -> 
 }
 
 //general GET function for the unofficial API
+//TODO return result instead of String
 async fn dl_get(client: &reqwest::Client, endpoint: String, params: &mut HashMap<String, String>, auth: &mut DlBasicAuthResponse) -> String
 {
     if !dl_check_auth(&client, &auth).await
@@ -315,10 +314,9 @@ async fn dl_get(client: &reqwest::Client, endpoint: String, params: &mut HashMap
     }
     else
     {
-        println!("no countryCode found");
+        return s!("No countryCode found in dl_get");
     }
     let url = reqwest::Url::parse_with_params(format!("https://api.tidalhifi.com/v1/{0}", endpoint).as_str(), params.clone()).expect("Unable to parse URL");
-    println!("dl_get url: {0}", url);
     match client
         .get(url)
         .bearer_auth(auth.access_token.clone())
@@ -374,7 +372,6 @@ async fn device_auth(client: &reqwest::Client) -> DeviceCodeResponse
                     .text()
                     .await
                     .unwrap();
-                println!("device_auth: {0}", resp_text);
                 serde_json::from_str(&resp_text).expect("Unable to deserialize response from device_authorization endpoint")
             }
             Err(e) => 
@@ -411,7 +408,6 @@ async fn dl_basic_auth(client: &reqwest::Client, device_code_response: DeviceCod
                     .text()
                     .await
                     .unwrap();
-                println!("dl_basic_auth: {0}", resp_text);
                 serde_json::from_str(&resp_text).expect("Unable to deserialize response from device_authorization endpoint") 
             }
             Err(e) =>
