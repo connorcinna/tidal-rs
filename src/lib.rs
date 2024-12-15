@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use reqwest;
+use reqwest::{Response, Client};
 extern crate dotenv;
 extern crate serde_json;
 use serde_json::Value;
@@ -7,12 +7,27 @@ use serde::{Serialize, Deserialize};
 use dotenv::dotenv;
 use std::env;
 use std::fmt;
-use std::fmt::Display;
+use std::error::Error;
 use std::collections::HashMap;
+use base64::prelude::*;
 
 macro_rules! s {
     ($s:expr) => { $s.to_string() }
 }
+
+#[derive(Debug)]
+pub struct TidalError(String);
+
+impl fmt::Display for TidalError 
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result 
+    {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Error for TidalError {}
+
 
 //TODO: move all these structs to their own file
 //TODO: move all auth stuff into its own file
@@ -203,7 +218,7 @@ pub struct SearchResponse
 }
 
 //handles all GET requests under the search results endpoint
-pub async fn search_get(client: &reqwest::Client, search: Search) -> String
+pub async fn search_get(client: &Client, search: Search) -> String
 {
     let bearer_token = basic_auth(&client).await;
     let mut endpoint =  format!("https://openapi.tidal.com/v2/searchresults/{0}/relationships/{1}?countryCode={2}", search.query, search.search_type.to_string(), search.country_code);
@@ -248,7 +263,7 @@ pub async fn search_get(client: &reqwest::Client, search: Search) -> String
         }
 }
 
-pub async fn search_get_track(client: &reqwest::Client, query: String) -> Vec<String>
+pub async fn search_get_track(client: &Client, query: String) -> Vec<String>
 {
     let search = Search 
     {
@@ -268,7 +283,7 @@ pub async fn search_get_track(client: &reqwest::Client, query: String) -> Vec<St
 }
 
 //oauth2 login 
-async fn dl_login_web(client: &reqwest::Client) -> DlBasicAuthResponse
+async fn dl_login_web(client: &Client) -> DlBasicAuthResponse
 {
     let response = device_auth(&client).await;
     println!("Go to the following link in your browser to authenticate, then press any button to continue -- {0}", response.verification_uri_complete);
@@ -278,7 +293,7 @@ async fn dl_login_web(client: &reqwest::Client) -> DlBasicAuthResponse
 }
 
 //check if we are authenticated already, or if it expired
-async fn dl_check_auth(client: &reqwest::Client, auth: &DlBasicAuthResponse) -> bool
+async fn dl_check_auth(client: &Client, auth: &DlBasicAuthResponse) -> bool
 {
     let url = "https://api.tidal.com/v1/sessions";
     match client
@@ -301,8 +316,7 @@ async fn dl_check_auth(client: &reqwest::Client, auth: &DlBasicAuthResponse) -> 
 }
 
 //general GET function for the unofficial API
-//TODO return result instead of String
-async fn dl_get(client: &reqwest::Client, endpoint: String, params: &mut HashMap<String, String>, auth: &mut DlBasicAuthResponse) -> String
+async fn dl_get(client: &Client, endpoint: String, params: &mut HashMap<String, String>, auth: &mut DlBasicAuthResponse) -> Result<Response, Box<dyn Error>>
 {
     if !dl_check_auth(&client, &auth).await
     {
@@ -314,43 +328,66 @@ async fn dl_get(client: &reqwest::Client, endpoint: String, params: &mut HashMap
     }
     else
     {
-        return s!("No countryCode found in dl_get");
+        return Err(Box::new(TidalError(s!("No countryCode found in dl_get"))));
     }
     let url = reqwest::Url::parse_with_params(format!("https://api.tidalhifi.com/v1/{0}", endpoint).as_str(), params.clone()).expect("Unable to parse URL");
-    match client
+    let result = client
         .get(url)
         .bearer_auth(auth.access_token.clone())
         .send()
-        .await
-        {
-            Ok(response) => 
-            {
-                response
-                    .text()
-                    .await
-                    .unwrap()
-            }
-            Err(e) =>
-            {
-                eprintln!("{e}");
-                String::new()
-            }
-        }
+        .await;
+    result.map_err(|e| Box::new(e) as Box<dyn Error>)
 }
 
-async fn dl_get_track(client: &reqwest::Client, query: String, auth: &mut DlBasicAuthResponse) -> String
+async fn dl_get_track_url(client: &Client, query: String, auth: &mut DlBasicAuthResponse) -> String
 {
-//    let endpoint = format!("tracks/{0}/playbackinfopostpaywall", query);
-    let endpoint = format!("tracks/{0}", query);
+    let endpoint = format!("tracks/{0}/playbackinfopostpaywall", query);
     let mut params = HashMap::new();
     params.insert(s!("audioquality"), s!("LOSSLESS"));
     params.insert(s!("playbackmode"), s!("STREAM"));
     params.insert(s!("assetpresentation"), s!("FULL"));
-    let res = dl_get(&client, endpoint, &mut params, auth).await;
-    res
+    match dl_get(&client, endpoint, &mut params, auth).await 
+    {
+        Ok(response) => 
+        {
+            extract_url_from_manifest(response).await
+        }
+        Err(e) => 
+        {
+            format!("{e}")
+        }
+    }
 }
 
-async fn device_auth(client: &reqwest::Client) -> DeviceCodeResponse
+//TODO: return Result instead of String
+async fn extract_url_from_manifest(response: Response) -> String
+{
+    let response_map = response
+        .json::<HashMap<String, Value>>()
+        .await
+        .unwrap();
+    let mut manifest = response_map
+        .get("manifest")
+        .expect("Expected to find manifest field")
+        .as_str()
+        .unwrap();
+    manifest = trim_last_char(manifest).await;
+    let decoded = String::from_utf8(BASE64_STANDARD_NO_PAD
+        .decode(manifest)
+        .unwrap())
+        .expect("Unable to decode manifest");
+    let decoded_map: HashMap<String, Value> = serde_json::from_str(decoded.as_str()).expect("Unable to serialize decoded manifest into hashmap");
+    return decoded_map.get("urls").expect("Expected to find URL value in decoded_map")[0].to_string();
+}
+
+async fn trim_last_char(value: &str) -> &str
+{
+    let mut chars = value.chars();
+    chars.next_back();
+    chars.as_str()
+}
+
+async fn device_auth(client: &Client) -> DeviceCodeResponse
 {
     dotenv().ok();
     let dl_client_id = env::var("DL_CLIENT_ID").expect("Did not find DL_CLIENT_ID in environment. Make sure to have a .env file defining CLIENT_ID");
@@ -383,7 +420,7 @@ async fn device_auth(client: &reqwest::Client) -> DeviceCodeResponse
 
 }
 
-async fn dl_basic_auth(client: &reqwest::Client, device_code_response: DeviceCodeResponse) -> DlBasicAuthResponse
+async fn dl_basic_auth(client: &Client, device_code_response: DeviceCodeResponse) -> DlBasicAuthResponse
 {
     dotenv().ok();
     let dl_client_id = env::var("DL_CLIENT_ID").expect("Did not find DL_CLIENT_ID in environment. Make sure to have a .env file defining CLIENT_ID");
@@ -418,7 +455,7 @@ async fn dl_basic_auth(client: &reqwest::Client, device_code_response: DeviceCod
         }
 }
 
-async fn basic_auth(client: &reqwest::Client) -> String
+async fn basic_auth(client: &Client) -> String
 {
     dotenv().ok();
     let client_id = env::var("CLIENT_ID").expect("Did not find CLIENT_ID in environment. Make sure to have a .env file defining CLIENT_ID");
@@ -447,6 +484,25 @@ async fn basic_auth(client: &reqwest::Client) -> String
         }
 }
 
+async fn download_file(client: &Client, url: String, dest: String) -> Result<(), Box<dyn Error>>
+{
+    let response = client.get(url).send().await?;
+    match response.error_for_status()
+    {
+        Ok(res) => 
+        {
+            let mut file = std::fs::File::create(dest)?;
+            let mut content =  std::io::Cursor::new(res.bytes().await?);
+            std::io::copy(&mut content, &mut file)?;
+            Ok(())
+        }
+        Err(e) => 
+        {
+            Err(Box::new(TidalError(e.to_string())))
+        }
+    }
+}
+
 fn sanitize_url(url: String) -> String
 {
     url.replace(' ', "%20")
@@ -459,13 +515,24 @@ mod tests {
     #[tokio::test]
     async fn it_works() 
     {
-        let client : reqwest::Client = reqwest::Client::builder()
+        let client : Client = Client::builder()
             .http1_title_case_headers()
             .build()
             .expect("Unable to build reqwest client");
         let mut auth = DlBasicAuthResponse::default();
-        let track_search = search_get_track(&client, s!("pablo honey")).await;
-        let pablo_honey = dl_get_track(&client, track_search[0].clone(), &mut auth).await;
-        println!("pablo_honey: {0}", pablo_honey);
+        let track_search = search_get_track(&client, s!("radiohead creep")).await;
+        let creep_url = dl_get_track_url(&client, track_search[0].clone(), &mut auth).await;
+        println!("creep: {0}", creep_url);
+        match download_file(&client, creep_url, s!("/Users/connormac/projects/tidal-rs/downloads/creep.flac")).await
+        {
+            Ok(()) => 
+            {
+                println!("File successfully downloaded at /Users/connormac/projects/tidal-rs/downloads");
+            }
+            Err(e) => 
+            {
+                eprintln!("{e}");
+            }
+        }
     }
 }
