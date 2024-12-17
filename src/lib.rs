@@ -486,7 +486,11 @@ async fn basic_auth(client: &Client) -> String
 
 async fn download_file(client: &Client, url: String, dest: String) -> Result<(), Box<dyn Error>>
 {
-    let response = client.get(url).send().await?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .unwrap();
     match response.error_for_status()
     {
         Ok(res) => 
@@ -503,9 +507,12 @@ async fn download_file(client: &Client, url: String, dest: String) -> Result<(),
     }
 }
 
-fn sanitize_url(url: String) -> String
+fn sanitize_url(mut url: String) -> String
 {
-    url.replace(' ', "%20")
+    url = url.replace(' ', "%20");
+    url = url.replace('\'', "");
+    url = url.replace('\"', "");
+    url
 }
 
 #[cfg(test)]
@@ -523,7 +530,8 @@ mod tests {
         let track_search = search_get_track(&client, s!("radiohead creep")).await;
         let creep_url = dl_get_track_url(&client, track_search[0].clone(), &mut auth).await;
         println!("creep: {0}", creep_url);
-        match download_file(&client, creep_url, s!("/Users/connormac/projects/tidal-rs/downloads/creep.flac")).await
+        let sanitized_url = sanitize_url(creep_url);
+        match download_file(&client, sanitized_url, s!("/Users/connormac/projects/tidal-rs/downloads/creep.flac")).await
         {
             Ok(()) => 
             {
