@@ -9,6 +9,7 @@ use std::env;
 use std::fmt;
 use std::error::Error;
 use std::collections::HashMap;
+use chrono;
 use base64::prelude::*;
 
 macro_rules! s {
@@ -511,6 +512,25 @@ async fn trim_last_char(value: &str) -> &str
     chars.as_str()
 }
 
+fn generate_filename(query: String) -> String
+{
+    let date_string = chrono::offset::Local::now();
+    match std::env::var("HOME")
+    {
+        Ok(home) => 
+        {
+            format!("{0}/Downloads/{1}_{2}.flac", home, query, date_string).replace(' ', "_")
+        }
+        Err(..) => 
+        {
+            //TODO: create a download directory in current directory
+            format!("Downloads/{0}_{1}", query, date_string)
+        }
+    }
+}
+
+//TODO when the database gets introduced, maybe check it before downloading to see if we've already
+//downloaded this file before
 async fn download_file(client: &Client, url: String, dest: String) -> Result<(), Box<dyn Error>>
 {
     let response = client
@@ -549,15 +569,18 @@ mod tests {
             .build()
             .expect("Unable to build reqwest client");
         let mut auth = DlBasicAuthResponse::default();
-        let track_search = search_get_track(&client, s!("radiohead creep")).await;
+        let query = s!("radiohead creep");
+        let filename = generate_filename(query.clone());
+        println!("{0}", filename);
+        let track_search = search_get_track(&client, query).await;
         let creep_url = dl_get_track_url(&client, track_search[0].clone(), &mut auth).await;
         println!("creep: {0}", creep_url);
         let sanitized_url = sanitize_url(creep_url);
-        match download_file(&client, sanitized_url, s!("/Users/connormac/projects/tidal-rs/downloads/creep.flac")).await
+        match download_file(&client, sanitized_url, filename.clone()).await
         {
             Ok(()) => 
             {
-                println!("File successfully downloaded at /Users/connormac/projects/tidal-rs/downloads");
+                println!("File successfully downloaded at {0}", filename.clone());
             }
             Err(e) => 
             {
