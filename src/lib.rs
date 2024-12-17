@@ -15,6 +15,10 @@ macro_rules! s {
     ($s:expr) => { $s.to_string() }
 }
 
+
+//REGION structs
+
+
 #[derive(Debug)]
 pub struct TidalError(String);
 
@@ -217,6 +221,8 @@ pub struct SearchResponse
     links: Links
 }
 
+//REGION API requests
+
 //handles all GET requests under the search results endpoint
 pub async fn search_get(client: &Client, search: Search) -> String
 {
@@ -282,38 +288,9 @@ pub async fn search_get_track(client: &Client, query: String) -> Vec<String>
         .collect()
 }
 
-//oauth2 login 
-async fn dl_login_web(client: &Client) -> DlBasicAuthResponse
-{
-    let response = device_auth(&client).await;
-    println!("Go to the following link in your browser to authenticate, then press any button to continue -- {0}", response.verification_uri_complete);
-    let _ = std::io::stdin().read_line(&mut String::new());
-    let auth_response = dl_basic_auth(&client, response).await;
-    auth_response
-}
 
-//check if we are authenticated already, or if it expired
-async fn dl_check_auth(client: &Client, auth: &DlBasicAuthResponse) -> bool
-{
-    let url = "https://api.tidal.com/v1/sessions";
-    match client
-        .get(url)
-        .bearer_auth(auth.access_token.clone())
-        .send()
-        .await
-        {
-            Ok(response) => 
-            {
-                let ret = response.status() == reqwest::StatusCode::OK;
-                return ret;
-            }
-            Err(e) => 
-            {
-                eprintln!("{e}");
-                false
-            }
-        }
-}
+
+
 
 //general GET function for the unofficial API
 async fn dl_get(client: &Client, endpoint: String, params: &mut HashMap<String, String>, auth: &mut DlBasicAuthResponse) -> Result<Response, Box<dyn Error>>
@@ -380,12 +357,7 @@ async fn extract_url_from_manifest(response: Response) -> String
     return decoded_map.get("urls").expect("Expected to find URL value in decoded_map")[0].to_string();
 }
 
-async fn trim_last_char(value: &str) -> &str
-{
-    let mut chars = value.chars();
-    chars.next_back();
-    chars.as_str()
-}
+
 
 async fn device_auth(client: &Client) -> DeviceCodeResponse
 {
@@ -418,6 +390,18 @@ async fn device_auth(client: &Client) -> DeviceCodeResponse
             }
         }
 
+}
+
+//REGION authentication
+
+//oauth2 login 
+async fn dl_login_web(client: &Client) -> DlBasicAuthResponse
+{
+    let response = device_auth(&client).await;
+    println!("Go to the following link in your browser to authenticate, then press any button to continue -- {0}", response.verification_uri_complete);
+    let _ = std::io::stdin().read_line(&mut String::new());
+    let auth_response = dl_basic_auth(&client, response).await;
+    auth_response
 }
 
 async fn dl_basic_auth(client: &Client, device_code_response: DeviceCodeResponse) -> DlBasicAuthResponse
@@ -484,6 +468,49 @@ async fn basic_auth(client: &Client) -> String
         }
 }
 
+//check if we are authenticated already, or if it expired
+async fn dl_check_auth(client: &Client, auth: &DlBasicAuthResponse) -> bool
+{
+    let url = "https://api.tidal.com/v1/sessions";
+    match client
+        .get(url)
+        .bearer_auth(auth.access_token.clone())
+        .send()
+        .await
+        {
+            Ok(response) => 
+            {
+                let ret = response.status() == reqwest::StatusCode::OK;
+                return ret;
+            }
+            Err(e) => 
+            {
+                eprintln!("{e}");
+                false
+            }
+        }
+}
+
+
+
+//REGION utility
+
+//TODO: create a vec of bad characters and map function for replacing?
+fn sanitize_url(mut url: String) -> String
+{
+    url = url.replace(' ', "%20");
+    url = url.replace('\'', "");
+    url = url.replace('\"', "");
+    url
+}
+
+async fn trim_last_char(value: &str) -> &str
+{
+    let mut chars = value.chars();
+    chars.next_back();
+    chars.as_str()
+}
+
 async fn download_file(client: &Client, url: String, dest: String) -> Result<(), Box<dyn Error>>
 {
     let response = client
@@ -507,13 +534,8 @@ async fn download_file(client: &Client, url: String, dest: String) -> Result<(),
     }
 }
 
-fn sanitize_url(mut url: String) -> String
-{
-    url = url.replace(' ', "%20");
-    url = url.replace('\'', "");
-    url = url.replace('\"', "");
-    url
-}
+//REGION test
+
 
 #[cfg(test)]
 mod tests {
