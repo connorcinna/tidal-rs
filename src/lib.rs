@@ -224,7 +224,7 @@ pub struct SearchResponse
 
 //REGION API requests
 
-//handles all GET requests under the search results endpoint
+//handles GET requests for searchresults endpoint
 pub async fn search_get(client: &Client, search: Search) -> String
 {
     let bearer_token = basic_auth(&client).await;
@@ -261,7 +261,8 @@ pub async fn search_get(client: &Client, search: Search) -> String
         {
             Ok(resp) => 
             {
-                resp.text().await.unwrap()
+                let text = resp.text().await.unwrap();
+                text
             }
             Err(e) => 
             {
@@ -289,8 +290,33 @@ pub async fn search_get_track(client: &Client, query: String) -> Vec<String>
         .collect()
 }
 
-
-
+//TODO: fix this? it builds but lsp is complaining
+pub async fn get_track_by_id(client: &Client, id: String, country_code: String) -> Result<HashMap<String, Value>, Box<dyn Error>>
+{
+    let bearer_token = basic_auth(&client).await;
+    let mut params = HashMap::new();
+    params.insert("countryCode", country_code);
+    let url = reqwest::Url::parse_with_params(format!("https://openapi.tidal.com/v2/tracks/{0}", id).as_str(), params.clone()).expect("Unable to parse URL");
+    match client
+        .get(url)
+        .header(reqwest::header::ACCEPT, "application/vnd.api+json")
+        .header(reqwest::header::AUTHORIZATION, bearer_token.clone())
+        .send()
+        .await
+        {
+            Ok(resp) => 
+            {
+                let text = resp.text().await.unwrap();
+                let result = serde_json::from_str(text.as_str());
+                result.map_err(|e| Box::new(e) as Box<dyn Error>)
+            }
+            Err(e) => 
+            {
+                eprintln!("{e}");
+                return Err(Box::new(TidalError(format!("{0}", e.to_string()))));
+            }
+        }
+}
 
 
 //general GET function for the unofficial API
@@ -344,6 +370,7 @@ async fn extract_url_from_manifest(response: Response) -> String
         .json::<HashMap<String, Value>>()
         .await
         .unwrap();
+    println!("response_map: {:?}", response_map);
     let mut manifest = response_map
         .get("manifest")
         .expect("Expected to find manifest field")
@@ -355,7 +382,11 @@ async fn extract_url_from_manifest(response: Response) -> String
         .unwrap())
         .expect("Unable to decode manifest");
     let decoded_map: HashMap<String, Value> = serde_json::from_str(decoded.as_str()).expect("Unable to serialize decoded manifest into hashmap");
-    return decoded_map.get("urls").expect("Expected to find URL value in decoded_map")[0].to_string();
+    return sanitize_url(decoded_map
+            .get("urls")
+            .expect("Expected to find URL value in decoded_map")[0]
+            .to_string()
+    );
 }
 
 
@@ -440,6 +471,8 @@ async fn dl_basic_auth(client: &Client, device_code_response: DeviceCodeResponse
         }
 }
 
+//Does the basic authentication using Client ID and Client Secret from the environment
+//Returns: string containing the header value for bearer authentication in the form of "Bearer KEY"
 async fn basic_auth(client: &Client) -> String
 {
     dotenv().ok();
@@ -512,21 +545,34 @@ async fn trim_last_char(value: &str) -> &str
     chars.as_str()
 }
 
-fn generate_filename(query: String) -> String
+fn generate_filename(query: String, filetype: String) -> String
 {
     let date_string = chrono::offset::Local::now();
     match std::env::var("HOME")
     {
         Ok(home) => 
         {
-            format!("{0}/Downloads/{1}_{2}.flac", home, query, date_string).replace(' ', "_")
+            format!("{0}/Downloads/{1}_{2}.{3}", home, query, date_string, filetype).replace(' ', "_")
         }
         Err(..) => 
         {
             //TODO: create a download directory in current directory
-            format!("Downloads/{0}_{1}", query, date_string)
+            format!("Downloads/{0}_{1}.{2}", query, date_string, filetype)
         }
     }
+}
+
+fn which_filetype(url: String) -> String
+{
+    for s in vec!["flac", "mp4"]
+    {
+        if url.contains(s)
+        {
+            return s!(s);
+        }
+    }
+    //default to mp4
+    s!(".mp4")
 }
 
 //TODO when the database gets introduced, maybe check it before downloading to see if we've already
@@ -570,13 +616,23 @@ mod tests {
             .expect("Unable to build reqwest client");
         let mut auth = DlBasicAuthResponse::default();
         let query = s!("radiohead creep");
-        let filename = generate_filename(query.clone());
-        println!("{0}", filename);
-        let track_search = search_get_track(&client, query).await;
+        let track_search = search_get_track(&client, query.clone()).await;
+        //get the track name, artist, etc.
+        //need to get album cover too.. this is a lot of requests
+        let track = get_track_by_id(&client, track_search[0].clone(), s!("US")).await;
+        let t = track.unwrap();
+        println!("track: {:?}", t);
+        let filename = generate_filename(t
+            .get("data")
+            .expect("Unable to find data from the result")
+            .get("attributes")
+            .expect("Unable to find attributes from the result")
+            .get("title")
+            .expect("Unable to find titlefrom the result")
+            .to_string(), s!(".flac"));
+        //TODO: figure out the filetype from the url if possible
         let creep_url = dl_get_track_url(&client, track_search[0].clone(), &mut auth).await;
-        println!("creep: {0}", creep_url);
-        let sanitized_url = sanitize_url(creep_url);
-        match download_file(&client, sanitized_url, filename.clone()).await
+        match download_file(&client, creep_url, filename.clone()).await
         {
             Ok(()) => 
             {
