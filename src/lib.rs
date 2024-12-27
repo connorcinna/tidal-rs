@@ -370,7 +370,6 @@ async fn extract_url_from_manifest(response: Response) -> String
         .json::<HashMap<String, Value>>()
         .await
         .unwrap();
-    println!("response_map: {:?}", response_map);
     let mut manifest = response_map
         .get("manifest")
         .expect("Expected to find manifest field")
@@ -529,13 +528,19 @@ async fn dl_check_auth(client: &Client, auth: &DlBasicAuthResponse) -> bool
 
 //REGION utility
 
-//TODO: create a vec of bad characters and map function for replacing?
 fn sanitize_url(mut url: String) -> String
 {
     url = url.replace(' ', "%20");
     url = url.replace('\'', "");
     url = url.replace('\"', "");
     url
+}
+
+fn sanitize_filename(mut name: String) -> String
+{
+    name = name.replace("\"", "");
+    name = name.replace(" ", "_");
+    name
 }
 
 async fn trim_last_char(value: &str) -> &str
@@ -548,18 +553,8 @@ async fn trim_last_char(value: &str) -> &str
 fn generate_filename(query: String, filetype: String) -> String
 {
     let date_string = chrono::offset::Local::now();
-    match std::env::var("HOME")
-    {
-        Ok(home) => 
-        {
-            format!("{0}/Downloads/{1}_{2}.{3}", home, query, date_string, filetype).replace(' ', "_")
-        }
-        Err(..) => 
-        {
-            //TODO: create a download directory in current directory
-            format!("Downloads/{0}_{1}.{2}", query, date_string, filetype)
-        }
-    }
+    let filename = format!("{0}_{1}.{2}", query, date_string, filetype);
+    sanitize_filename(filename)
 }
 
 fn which_filetype(url: String) -> String
@@ -628,11 +623,11 @@ mod tests {
             .get("attributes")
             .expect("Unable to find attributes from the result")
             .get("title")
-            .expect("Unable to find titlefrom the result")
+            .expect("Unable to find title from the result")
             .to_string(), s!(".flac"));
         //TODO: figure out the filetype from the url if possible
         let creep_url = dl_get_track_url(&client, track_search[0].clone(), &mut auth).await;
-        match download_file(&client, creep_url, filename.clone()).await
+        match download_file(&client, creep_url, format!("~/Downloads/{0}", filename.clone())).await
         {
             Ok(()) => 
             {
