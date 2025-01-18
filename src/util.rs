@@ -48,9 +48,10 @@ fn which_filetype(url: String) -> String
     s!(".mp4")
 }
 
-//TODO when the database gets introduced, maybe check it before downloading to see if we've already
-//downloaded this file before
-async fn download_file(client: &Client, url: String, dest: String) -> Result<(), Box<dyn Error>>
+//TODO when the database gets introduced, attach metrics to this function
+//date of download, filesize, user, etc
+//Also check if this url has been downloaded before by this user
+pub async fn download_file(client: &Client, url: String, dest: String) -> Result<(), Box<dyn Error>>
 {
     let response = client
         .get(url)
@@ -59,14 +60,14 @@ async fn download_file(client: &Client, url: String, dest: String) -> Result<(),
         .unwrap();
     match response.error_for_status()
     {
-        Ok(res) => 
+        Ok(res) =>
         {
             let mut file = std::fs::File::create(dest)?;
             let mut content =  std::io::Cursor::new(res.bytes().await?);
             std::io::copy(&mut content, &mut file)?;
             Ok(())
         }
-        Err(e) => 
+        Err(e) =>
         {
             Err(Box::new(TidalError(e.to_string())))
         }

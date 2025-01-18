@@ -3,6 +3,7 @@ extern crate dotenv;
 extern crate serde_json;
 use reqwest::{Response, Client};
 use crate::structs::{SearchResponse,Search,SearchType,TidalError,DlBasicAuthResponse,DeviceCodeResponse};
+use crate::util::download_file;
 use serde_json::Value;
 use dotenv::dotenv;
 use std::error::Error;
@@ -54,12 +55,12 @@ pub async fn search_get(client: &Client, search: Search) -> String
         .send()
         .await
         {
-            Ok(resp) => 
+            Ok(resp) =>
             {
                 let text = resp.text().await.unwrap();
                 text
             }
-            Err(e) => 
+            Err(e) =>
             {
                 e.to_string()
             }
@@ -68,7 +69,7 @@ pub async fn search_get(client: &Client, search: Search) -> String
 
 pub async fn search_get_track(client: &Client, query: String) -> Vec<String>
 {
-    let search = Search 
+    let search = Search
     {
         search_type: SearchType::Track,
         query,
@@ -98,13 +99,13 @@ pub async fn get_track_by_id(client: &Client, id: String, country_code: String) 
         .send()
         .await
         {
-            Ok(resp) => 
+            Ok(resp) =>
             {
                 let text = resp.text().await.unwrap();
                 let result = serde_json::from_str(text.as_str());
                 result.map_err(|e| Box::new(e) as Box<dyn Error>)
             }
-            Err(e) => 
+            Err(e) =>
             {
                 eprintln!("{e}");
                 return Err(Box::new(e) as Box<dyn Error>);
@@ -120,7 +121,7 @@ async fn dl_get(client: &Client, endpoint: String, params: &mut HashMap<String, 
     {
         *auth = dl_login_web(&client).await;
     }
-    if let Some(country_code) = &auth.user.country_code 
+    if let Some(country_code) = &auth.user.country_code
     {
         params.insert(s!("countryCode"), country_code.to_owned());
     }
@@ -144,13 +145,13 @@ async fn dl_get_track_url(client: &Client, query: String, auth: &mut DlBasicAuth
     params.insert(s!("audioquality"), s!("LOSSLESS"));
     params.insert(s!("playbackmode"), s!("STREAM"));
     params.insert(s!("assetpresentation"), s!("FULL"));
-    match dl_get(&client, endpoint, &mut params, auth).await 
+    match dl_get(&client, endpoint, &mut params, auth).await
     {
-        Ok(response) => 
+        Ok(response) =>
         {
             extract_url_from_manifest(response).await
         }
-        Err(e) => 
+        Err(e) =>
         {
             format!("{e}")
         }
@@ -208,7 +209,7 @@ async fn device_auth(client: &Client) -> DeviceCodeResponse
                     .unwrap();
                 serde_json::from_str(&resp_text).expect("Unable to deserialize response from device_authorization endpoint")
             }
-            Err(e) => 
+            Err(e) =>
             {
                 println!("ERROR : {:?}", e);
                 DeviceCodeResponse::default()
@@ -219,7 +220,7 @@ async fn device_auth(client: &Client) -> DeviceCodeResponse
 
 //REGION authentication
 
-//oauth2 login 
+//oauth2 login
 async fn dl_login_web(client: &Client) -> DlBasicAuthResponse
 {
     let response = device_auth(&client).await;
@@ -254,7 +255,7 @@ async fn dl_basic_auth(client: &Client, device_code_response: DeviceCodeResponse
                     .text()
                     .await
                     .unwrap();
-                serde_json::from_str(&resp_text).expect("Unable to deserialize response from device_authorization endpoint") 
+                serde_json::from_str(&resp_text).expect("Unable to deserialize response from device_authorization endpoint")
             }
             Err(e) =>
             {
@@ -281,14 +282,14 @@ async fn basic_auth(client: &Client) -> String
         .send()
         .await
         {
-            Ok(resp) => 
+            Ok(resp) =>
             {
                 let out = resp.text().await.unwrap();
                 let json: Value = serde_json::from_str(&out).unwrap();
                 let token = json.get("access_token").unwrap().to_string().replace("\"", "");
                 format!("Bearer {0}", token)
             }
-            Err(e) => 
+            Err(e) =>
             {
                 e.to_string()
             }
@@ -305,12 +306,12 @@ async fn dl_check_auth(client: &Client, auth: &DlBasicAuthResponse) -> bool
         .send()
         .await
         {
-            Ok(response) => 
+            Ok(response) =>
             {
                 let ret = response.status() == reqwest::StatusCode::OK;
                 return ret;
             }
-            Err(e) => 
+            Err(e) =>
             {
                 eprintln!("{e}");
                 false
@@ -363,32 +364,6 @@ fn which_filetype(url: String) -> String
     //default to mp4
     s!(".mp4")
 }
-
-//TODO when the database gets introduced, maybe check it before downloading to see if we've already
-//downloaded this file before
-async fn download_file(client: &Client, url: String, dest: String) -> Result<(), Box<dyn Error>>
-{
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .unwrap();
-    match response.error_for_status()
-    {
-        Ok(res) => 
-        {
-            let mut file = std::fs::File::create(dest)?;
-            let mut content =  std::io::Cursor::new(res.bytes().await?);
-            std::io::copy(&mut content, &mut file)?;
-            Ok(())
-        }
-        Err(e) => 
-        {
-            Err(Box::new(TidalError(e.to_string())))
-        }
-    }
-}
-
 //REGION test
 
 
@@ -397,7 +372,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn it_works() 
+    async fn it_works()
     {
         let client : Client = Client::builder()
             .http1_title_case_headers()
@@ -423,11 +398,11 @@ mod tests {
         let creep_url = dl_get_track_url(&client, track_search[0].clone(), &mut auth).await;
         match download_file(&client, creep_url, format!("~/Downloads/{0}", filename.clone())).await
         {
-            Ok(()) => 
+            Ok(()) =>
             {
                 println!("File successfully downloaded at {0}", filename.clone());
             }
-            Err(e) => 
+            Err(e) =>
             {
                 eprintln!("{e}");
             }
