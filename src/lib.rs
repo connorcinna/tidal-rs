@@ -1,225 +1,20 @@
 #![allow(dead_code)]
-use reqwest::{Response, Client};
 extern crate dotenv;
 extern crate serde_json;
+use reqwest::{Response, Client};
+use crate::structs::{SearchResponse,Search,SearchType,TidalError,DlBasicAuthResponse,DeviceCodeResponse};
 use serde_json::Value;
-use serde::{Serialize, Deserialize};
 use dotenv::dotenv;
-use std::env;
-use std::fmt;
 use std::error::Error;
+use std::env;
 use std::collections::HashMap;
 use chrono;
 use base64::prelude::*;
+pub mod util;
+pub mod structs;
 
 macro_rules! s {
     ($s:expr) => { $s.to_string() }
-}
-
-
-//REGION structs
-
-
-#[derive(Debug)]
-pub struct TidalError(String);
-
-impl fmt::Display for TidalError 
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result 
-    {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl Error for TidalError {}
-
-
-//TODO: move all these structs to their own file
-//TODO: move all auth stuff into its own file
-//for efficiency reasons, this API will expect a reqwest client passed in so that it can be reused
-#[derive(Debug)]
-pub enum SearchType 
-{
-    Album,
-    Artist,
-    Playlist,
-    TopHits,
-    Track,
-    Video,
-}
-
-#[allow(non_snake_case)]
-pub struct Search 
-{
-    search_type: SearchType,
-    query: String,
-    country_code: String,
-    array: Option<Vec<String>>,
-    page: Option<String>,
-}
-
-impl fmt::Display for SearchType
-{
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result 
-    {
-        match &self
-        {
-            SearchType::Album => write!(fmt, "albums"),
-            SearchType::Artist => write!(fmt, "artists"),
-            SearchType::Playlist => write!(fmt, "playlists"),
-            SearchType::TopHits => write!(fmt, "topHits"),
-            SearchType::Track => write!(fmt, "tracks"),
-            SearchType::Video => write!(fmt, "videos"),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all(serialize = "snake_case", deserialize = "camelCase"))]
-struct DeviceCodeResponse
-{
-    device_code: String,
-    user_code: String, 
-    verification_uri: String,
-    verification_uri_complete: String,
-    expires_in: u32,
-    interval: u32
-}
-
-impl Default for DeviceCodeResponse
-{
-    fn default() -> Self 
-    {
-        DeviceCodeResponse 
-        { 
-            device_code: String::new(),
-            user_code: String::new(),
-            verification_uri: String::new(),
-            verification_uri_complete: String::new(),
-            expires_in: 0,
-            interval: 0,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all(serialize = "snake_case", deserialize = "camelCase"))]
-#[allow(non_snake_case)]
-struct User
-{
-    user_id: Option<u64>,
-    email: Option<String>,
-    country_code: Option<String>,
-    full_name: Option<String>,
-    first_name: Option<String>,
-    last_name: Option<String>,
-    nickname: Option<String>,
-    username: Option<String>,
-    address: Option<String>,
-    city: Option<String>,
-    postalcode: Option<String>,
-    us_state: Option<String>,
-    phone_number: Option<String>,
-    birthday: Option<String>,
-    channel_id: Option<u64>,
-    parent_id: Option<u64>,
-    accepted_EULA: bool,
-    created: Option<u64>,
-    updated: Option<u64>,
-    facebook_uid: Option<u64>,
-    apple_uid: Option<u64>,
-    google_uid: Option<u64>,
-    account_link_created: bool,
-    email_verified: bool,
-    new_user: bool
-}
-
-impl Default for User
-{
-    fn default() -> Self
-    {
-        User
-        {
-            user_id: Some(0),
-            email: Some(String::new()),
-            country_code: Some(String::new()),
-            full_name: Some(String::new()),
-            first_name: Some(String::new()),
-            last_name: Some(String::new()),
-            nickname: Some(String::new()),
-            username: Some(String::new()),
-            address: Some(String::new()),
-            city: Some(String::new()),
-            postalcode: Some(String::new()),
-            us_state: Some(String::new()),
-            phone_number: Some(String::new()),
-            birthday: Some(String::new()),
-            channel_id: Some(0),
-            parent_id: Some(0),
-            accepted_EULA: false,
-            created: Some(0),
-            updated: Some(0),
-            facebook_uid: Some(0),
-            apple_uid: Some(0),
-            google_uid: Some(0),
-            account_link_created: false,
-            email_verified: false,
-            new_user: false
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[allow(non_snake_case)]
-struct DlBasicAuthResponse
-{
-    scope: String,
-    user: User,
-    clientName: String,
-    token_type: String,
-    access_token: String,
-    expires_in: u32,
-    user_id: u64,
-}
-
-impl Default for DlBasicAuthResponse
-{
-    fn default() -> Self
-    {
-        DlBasicAuthResponse
-        {
-            scope: String::new(),
-            user: User::default(),
-            clientName: String::new(),
-            token_type: String::new(),
-            access_token: String::new(),
-            expires_in: 0,
-            user_id: 0,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Media
-{
-    id: String,
-    #[serde(rename = "type")] 
-    _type: String
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Links
-{
-    #[serde(rename = "self")] 
-    _self: String,
-    next: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct SearchResponse
-{
-    data: Vec<Media>,
-    links: Links
 }
 
 //REGION API requests
@@ -247,7 +42,7 @@ pub async fn search_get(client: &Client, search: Search) -> String
     {
         Some(p) =>
         {
-            endpoint.push_str(format!("page%5Bcursor%5D={0}", p).as_str()); 
+            endpoint.push_str(format!("page%5Bcursor%5D={0}", p).as_str());
         }
         None => {}
     }
@@ -290,7 +85,6 @@ pub async fn search_get_track(client: &Client, query: String) -> Vec<String>
         .collect()
 }
 
-//TODO: fix this? it builds but lsp is complaining
 pub async fn get_track_by_id(client: &Client, id: String, country_code: String) -> Result<HashMap<String, Value>, Box<dyn Error>>
 {
     let bearer_token = basic_auth(&client).await;
@@ -313,7 +107,7 @@ pub async fn get_track_by_id(client: &Client, id: String, country_code: String) 
             Err(e) => 
             {
                 eprintln!("{e}");
-                return Err(Box::new(TidalError(format!("{0}", e.to_string()))));
+                return Err(Box::new(e) as Box<dyn Error>);
             }
         }
 }
